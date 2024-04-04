@@ -44,7 +44,7 @@ const sendVerificationEmail = async (email, verificationToken) => {
         from: "proctor +",
         to: email,
         subject: "Email Verification",
-        text: `Please click the following link to verify your email : http://192.168.137.1:8000/verify/${verificationToken}`
+        text: `Please click the following link to verify your email : https://tenpaldev-capstoneproctors.onrender.com/verify/${verificationToken}`
     };
     try {
         await transporter.sendMail(mailOptions);
