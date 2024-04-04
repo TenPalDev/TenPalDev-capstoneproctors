@@ -8,9 +8,9 @@ const nodemailer = require("nodemailer");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-require('dotenv').config(); // Load environment variables from .env file
+
 const app = express();
-const port = process.env.PORT || 8000; // Use PORT from environment variables or default to 8000
+const port = 8000;
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -19,7 +19,7 @@ app.use(bodyParser.json());
 const server = http.createServer(app);
 const io = socketIo(server);
 // MongoDB connection
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect("mongodb+srv://data:data@cluster0.sekzc9f.mongodb.net/")
     .then(() => {
         console.log("Connected to MongoDB");
     })
