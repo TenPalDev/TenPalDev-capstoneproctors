@@ -8,9 +8,9 @@ const nodemailer = require("nodemailer");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-
+require('dotenv').config(); // Load environment variables from .env file
 const app = express();
-const port = 8000;
+const port = process.env.PORT || 8000; // Use PORT from environment variables or default to 8000
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -19,7 +19,7 @@ app.use(bodyParser.json());
 const server = http.createServer(app);
 const io = socketIo(server);
 // MongoDB connection
-mongoose.connect("mongodb+srv://data:data@cluster0.sekzc9f.mongodb.net/")
+mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
         console.log("Connected to MongoDB");
     })
@@ -444,6 +444,9 @@ app.get('/getParticipants', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+app.get("/", (req, res) => {
+    res.send("Hello World!")
+})
 //PORT
 server.listen(port, () => {
     console.log(`Server is running on port ${port}`);
