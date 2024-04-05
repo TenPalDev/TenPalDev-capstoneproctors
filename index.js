@@ -447,7 +447,7 @@ app.get('/getParticipants', async (req, res) => {
     }
 });
 app.get("/", (req, res) => {
-    res.send("Hello World Proctor!")
+    res.send("Hello World Proctor!!")
 })
 //PORT
 server.listen(port, () => {
