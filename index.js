@@ -151,21 +151,23 @@ io.on("connection", (socket) => {
     socket.on('addUserToRoom', async ({ userId, roomName }) => {
         console.log(`Adding user ${userId} to room ${roomName}`);
         try {
-            // Find the room by name
-            const room = await Room.findOne({ name: roomName });
-            if (!room) {
-                console.error('Room not found');
-                return;
-            }
-            // Add the user to the participants array
-            room.participants.push(userId);
-            await room.save();
-            // Join the room
-            socket.join(roomName);
+          // Find the room by name
+          const room = await Room.findOne({ name: roomName });
+          if (!room) {
+            console.error('Room not found');
+            return;
+          }
+          // Add the user to the participants array
+          room.participants.push(userId);
+          await room.save();
+          // Join the room
+          socket.join(roomName);
+          // Broadcast the participant joined event to all connected clients in the room
+          socket.broadcast.to(roomName).emit('participantJoined', { userId, name: 'Participant' });
         } catch (error) {
-            console.error('Error adding user to room:', error);
+          console.error('Error adding user to room:', error);
         }
-    });
+      });
     // Handle client disconnection
     socket.on("disconnect", () => {
         console.log("Client disconnected");
@@ -445,7 +447,7 @@ app.get('/getParticipants', async (req, res) => {
     }
 });
 app.get("/", (req, res) => {
-    res.send("Hello Proctor!")
+    res.send("Hello World Proctor!")
 })
 //PORT
 server.listen(port, () => {
