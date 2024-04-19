@@ -397,7 +397,7 @@ app.delete('/rooms/:roomId/participants/:userId', async (req, res) => {
     }
 });
 app.get("/", (req, res) => {
-    res.send("Hello World Proctor!")
+    res.send("Hello World Proctors!")
 })
 server.listen(port, () => {
     console.log(`Server is running on port ${port}`);
