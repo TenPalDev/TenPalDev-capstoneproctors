@@ -8,7 +8,6 @@ const nodemailer = require("nodemailer");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-
 const app = express();
 const port = 8000;
 
@@ -26,10 +25,10 @@ mongoose.connect("mongodb+srv://data:data@cluster0.sekzc9f.mongodb.net/")
     .catch((err) => {
         console.log("Error connecting to MongoDB", err);
     });
+
 // User model
 const User = require("./models/user");
-const Room = require("./models/room");
-const Message = require("./models/message");
+
 
 // Function to send verification email
 const sendVerificationEmail = async (email, verificationToken) => {
@@ -44,7 +43,7 @@ const sendVerificationEmail = async (email, verificationToken) => {
         from: "proctor +",
         to: email,
         subject: "Email Verification",
-        text: `Please click the following link to verify your email : https://tenpaldev-capstoneproctors.onrender.com/verify/${verificationToken}`
+        text: `Please click the following link to verify your email : http://192.168.137.1:8000/verify/${verificationToken}`
     };
     try {
         await transporter.sendMail(mailOptions);
@@ -52,173 +51,94 @@ const sendVerificationEmail = async (email, verificationToken) => {
         console.log("Error sending verification email", error);
     }
 };
-
 // Socket.IO connection
 io.on("connection", (socket) => {
     console.log("New client connected");
 
-    // Join room
-    const rooms = {}; // Room name -> list of participants
-
-    // Join room
-    socket.on("joinRoom", (roomName) => {
-        console.log("User joined room:", roomName);
-        socket.join(roomName);
-        // Initialize participants list for the room if not already exists
-        if (!rooms[roomName]) {
-            rooms[roomName] = [];
-        }
-        // Add user to the participants list for the room
-        rooms[roomName].push(socket.id);
-        // Emit updated participants list to all clients in the room
-        io.to(roomName).emit('participants', rooms[roomName]);
-
-        // Add listeningResponse event handler
-        socket.on('askListening', ({ participantId }) => {
-            // Assuming you have some logic to determine if the participant is listening
-            const isListening = false; // Replace this with your logic
-
-            // Emit a message back to the initiator (client) indicating the participant's response
-            io.emit('showAlert', { participantId });
-
-            // Store the participant's response temporarily
-            let participantResponse = '';
-
-            socket.on('listeningResponse', ({ participantId, response }) => {
-                // Check if the response is from the correct participant
-                if (participantId === participantId) {
-                    participantResponse = response;
-
-                    // You can optionally emit this response to the initiator (client) or handle it as needed
-                    console.log(`Participant ${participantId} responded with '${participantResponse}'`);
-                }
-            });
-
-            // After a certain timeout, check if the participant has responded
-            const responseTimeout = 30000; // 30 seconds timeout (adjust as needed)
-            setTimeout(() => {
-                if (participantResponse === '') {
-                    // If the participant hasn't responded, assume they are not listening
-                    io.emit('listeningResponse', { participantId, response: 'no' });
-                    console.log(`Timeout reached for participant ${participantId}, assuming 'no'`);
-                }
-            }, responseTimeout);
-        });
-        socket.on('requestOpenCamera', ({ participantId }) => {
-            // Emit event to the participant's socket asking to open camera
-            io.to(participantId).emit('openCameraRequest');
-        
-            // Set timeout for participant response
-            const responseTimeout = 30000; // 30 seconds timeout
-            setTimeout(() => {
-                // If the participant hasn't responded, assume they are not opening the camera
-                io.emit('openCameraResponse', { participantId, response: 'no' });
-            }, responseTimeout);
-        });
-
-        // Add event handler for receiving participant's response
-        socket.on('openCameraResponse', ({ participantId, response }) => {
-            // Handle participant's response here
-            console.log(`Participant ${participantId} responded with '${response}'`);
-            // Emit event to the initiator to show alert based on participant's response
-            io.emit('showAlert', { participantId, response });
-        });
-        socket.on('toggleCamera', (roomName) => {
-            console.log(`Camera toggle requested for room: ${roomName}`);
-            // Implement logic to activate the participant's camera here
-            // For example, you might emit an event to the client to start the camera
-            io.to(roomName).emit('startCamera'); // This will emit an event to all clients in the specified room to start their cameras
-        });
-    });
     socket.on("disconnect", () => {
         console.log("Client disconnected");
-
-        // Remove user from the participants list for all rooms
-        for (const roomName in rooms) {
-            if (rooms.hasOwnProperty(roomName)) {
-                const index = rooms[roomName].indexOf(socket.id);
-                if (index !== -1) {
-                    rooms[roomName].splice(index, 1);
-
-                    // Emit updated participants list to all clients in the room
-                    io.to(roomName).emit('participants', rooms[roomName]);
-                }
-            }
-        }
     });
 
-    // Handle adding user to room participants
+    // Join room
+    socket.on('join-room', ({ roomName, user, userId, roomId }) => {
+        socket.join(roomId);
+        console.log(`${userId} joined room ${roomName}`);
+        io.to(roomId).emit('user-joined', { user, userId });
+    });
+    socket.on('createRoom', async ({ name, creatorId, startTime, endTime }) => {
+        try {
+            // Check if creatorId corresponds to an existing user
+            const existingUser = await User.findById(creatorId);
+            if (!existingUser) {
+                return socket.emit('creationError', { message: 'Creator not found' });
+            }
+
+            // Create a new room instance with start and end times
+            const newRoom = new Room({
+                name,
+                creator: creatorId,
+                participants: [creatorId],
+                startTime,
+                endTime
+            });
+
+            // Save the new room to the database
+            const savedRoom = await newRoom.save();
+
+            // Emit roomCreated event to all connected clients
+            io.emit("roomCreated", savedRoom);
+
+            // Emit success event to the creator
+            socket.emit('roomCreationSuccess', { message: 'Room created successfully', room: savedRoom });
+        } catch (error) {
+            console.error("Error creating room:", error);
+            // Emit error event to the creator
+            socket.emit('creationError', { message: 'Failed to create room' });
+        }
+    });
+    socket.on('message', (message) => {
+        io.to(message.roomId).emit('message', message);
+    });
+
+    socket.on('leave-room', async ({ roomId, userId }) => {
+        try {
+            const room = await Room.findById(roomId);
+            if (!room) {
+                console.error('Room not found');
+                return;
+            }
+            room.participants = room.participants.filter(participantId => participantId !== userId);
+            await room.save();
+            socket.leave(roomId);
+            console.log(`User ${userId} left room ${roomId}`);
+
+            // Emit an event to update room list for all clients
+            io.emit('roomUpdated', await Room.find());
+
+        } catch (error) {
+            console.error('Error leaving room:', error);
+        }
+    });
     socket.on('addUserToRoom', async ({ userId, roomName }) => {
         console.log(`Adding user ${userId} to room ${roomName}`);
         try {
-          // Find the room by name
-          const room = await Room.findOne({ name: roomName });
-          if (!room) {
-            console.error('Room not found');
-            return;
-          }
-          // Add the user to the participants array
-          room.participants.push(userId);
-          await room.save();
-          // Join the room
-          socket.join(roomName);
-          // Broadcast the participant joined event to all connected clients in the room
-          socket.broadcast.to(roomName).emit('participantJoined', { userId, name: 'Participant' });
+            // Find the room by name
+            const room = await Room.findOne({ name: roomName });
+            if (!room) {
+                console.error('Room not found');
+                return;
+            }
+            // Add the user to the participants array
+            room.participants.push(userId);
+            await room.save();
+            // Join the room
+            socket.join(roomName);
         } catch (error) {
-          console.error('Error adding user to room:', error);
-        }
-      });
-    // Handle client disconnection
-    socket.on("disconnect", () => {
-        console.log("Client disconnected");
-    });
-    // WebRTC signaling events
-
-    // Receive and broadcast offer
-    socket.on('offer', ({ userId, offer, roomName }) => {
-        console.log(`Received offer from ${userId} in room ${roomName}`);
-        // Broadcast the offer to all clients in the room except the sender
-        socket.to(roomName).emit('offer', { userId, offer });
-    });
-    // Receive and broadcast answer
-    socket.on('answer', ({ userId, answer, roomName }) => {
-        console.log(`Received answer from ${userId} in room ${roomName}`);
-        // Broadcast the answer to all clients in the room except the sender
-        socket.to(roomName).emit('answer', { userId, answer });
-    });
-
-    // Receive and broadcast ICE candidate
-    socket.on('iceCandidate', ({ userId, candidate, roomName }) => {
-        console.log(`Received ICE candidate from ${userId} in room ${roomName}`);
-        // Broadcast the ICE candidate to all clients in the room except the sender
-        socket.to(roomName).emit('iceCandidate', { userId, candidate });
-    });
-    socket.on("message", async (message) => {
-        console.log("Received message:", message);
-
-        try {
-            // Save the message to the database
-            const newMessage = new Message({
-                sender: message.sender,
-                receiver: message.receiver,
-                text: message.text,
-                timestamp: new Date(),
-            });
-            await newMessage.save();
-            // Broadcast the received message to all connected clients
-            io.emit("message", message);
-        } catch (error) {
-            console.error("Error saving message:", error);
+            console.error('Error adding user to room:', error);
         }
     });
-    // Handle client disconnection
-    socket.on("disconnect", () => {
-        console.log("Client disconnected");
-    });
-
-
-
 });
+
 // Register endpoint
 app.post("/register", async (req, res) => {
     try {
@@ -351,14 +271,14 @@ app.put("/updateUserRole/:userId", async (req, res) => {
         res.status(500).json({ message: "Failed to update user role and school name" });
     }
 });
-// Create room endpoint
+const Room = require("./models/room");
 app.post("/rooms/create", async (req, res) => {
     try {
-        const { name, creatorId } = req.body;
+        const { name, creatorId, startTime, endTime } = req.body;
 
-        // Ensure that both name and creatorId are provided
-        if (!name || !creatorId) {
-            return res.status(400).json({ message: "Name and creatorId are required fields" });
+        // Ensure that all required fields are provided
+        if (!name || !creatorId || !startTime || !endTime) {
+            return res.status(400).json({ message: "Name, creatorId, startTime, and endTime are required fields" });
         }
 
         // Check if the creatorId corresponds to an existing user
@@ -368,7 +288,14 @@ app.post("/rooms/create", async (req, res) => {
         }
 
         // Create a new room instance
-        const newRoom = new Room({ name, creator: creatorId, participants: [creatorId] });
+        const newRoom = new Room({
+            name,
+            creator: creatorId,
+            startTime,
+            endTime,
+            participants: [creatorId]
+        });
+
         // Save the new room to the database
         await newRoom.save();
 
@@ -382,6 +309,10 @@ app.post("/rooms/create", async (req, res) => {
         res.status(500).json({ message: "Failed to create room" });
     }
 });
+
+
+
+
 // Invite to room endpoint
 app.post("/:roomId/invite", async (req, res) => {
     try {
@@ -420,36 +351,55 @@ app.get('/search-users', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
-app.get("/messages", async (req, res) => {
+app.delete('/rooms/:roomId', async (req, res) => {
     try {
-        // Find all messages and populate sender and receiver fields
-        const messages = await Message.find().populate('sender receiver');
-        res.json(messages);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-});
-app.get('/getParticipants', async (req, res) => {
-    const { roomName } = req.query;
-    try {
-        // Find the room by name
-        const room = await Room.findOne({ name: roomName });
-        if (!room) {
-            return res.status(404).json({ message: "Room not found" });
+        const roomId = req.params.roomId;
+
+        // Find the room by ID and delete it from the database
+        const deletedRoom = await Room.findByIdAndDelete(roomId);
+
+        if (!deletedRoom) {
+            // If the room with the provided ID doesn't exist
+            return res.status(404).json({ message: 'Room not found.' });
         }
 
-        // Fetch the participants for the room
-        const participants = await User.find({ _id: { $in: room.participants } });
-        res.json(participants);
+        // Respond with success message
+        res.status(200).json({ message: 'Room deleted successfully.' });
     } catch (error) {
-        console.error("Error fetching participants:", error);
-        res.status(500).json({ error: 'Internal server error' });
+        // Handle errors
+        console.error('Error deleting room:', error);
+        res.status(500).json({ message: 'Internal server error.' });
+    }
+});
+app.delete('/rooms/:roomId/participants/:userId', async (req, res) => {
+    try {
+        const roomId = req.params.roomId;
+        const userId = req.params.userId;
+
+        // Find the room by ID and update it by removing the userId from the participants array
+        const updatedRoom = await Room.findByIdAndUpdate(
+            roomId,
+            { $pull: { participants: userId } },
+            { new: true }
+        );
+
+        if (!updatedRoom) {
+            // If the room with the provided ID doesn't exist
+            return res.status(404).json({ message: 'Room not found.' });
+        }
+
+        // Respond with success message
+        res.status(200).json({ message: 'User removed from room successfully.' });
+    } catch (error) {
+        // Handle errors
+        console.error('Error removing user from room:', error);
+        res.status(500).json({ message: 'Internal server error.' });
     }
 });
 app.get("/", (req, res) => {
-    res.send("Hello World Proctor!!")
+    res.send("Hello World Proctor!")
 })
-//PORT
 server.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
